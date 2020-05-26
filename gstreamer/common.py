@@ -21,6 +21,7 @@ import numpy as np
 import svgwrite
 import tflite_runtime.interpreter as tflite
 import time
+from PIL import Image
 
 EDGETPU_SHARED_LIB = 'libedgetpu.so.1'
 
@@ -50,6 +51,11 @@ def set_input(interpreter, buf):
         np_buffer = np.reshape(np.frombuffer(mapinfo.data, dtype=np.uint8), input_image_size(interpreter))
         input_tensor(interpreter)[:, :] = np_buffer
         buf.unmap(mapinfo)
+
+def set_input2(interpreter, image, resample=Image.NEAREST):
+    """Copies data to input tensor."""
+    image = image.resize((input_image_size(interpreter)[0:2]), resample)
+    input_tensor(interpreter)[:, :] = image
 
 def output_tensor(interpreter, i):
     """Returns dequantized output tensor if quantized before."""

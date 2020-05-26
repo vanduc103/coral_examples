@@ -81,7 +81,7 @@ def main():
                         default=os.path.join(default_model_dir, default_labels))
     parser.add_argument('--top_k', type=int, default=3,
                         help='number of categories with highest score to display')
-    parser.add_argument('--camera_idx', type=int, help='Index of which video source to use. ', default = 0)
+    parser.add_argument('--camera_idx', type=str, help='Index of which video source to use. ', default = 0)
     parser.add_argument('--threshold', type=float, default=0.1,
                         help='classifier score threshold')
     args = parser.parse_args()
@@ -121,6 +121,9 @@ def append_objs_to_img(cv2_im, objs, labels):
         x0, y0, x1, y1 = int(x0*width), int(y0*height), int(x1*width), int(y1*height)
         percent = int(100 * obj.score)
         label = '{}% {}'.format(percent, labels.get(obj.id, obj.id))
+        '''is_human = labels.get(obj.id, obj.id)
+        if (is_human != 'person'):
+            continue'''
 
         cv2_im = cv2.rectangle(cv2_im, (x0, y0), (x1, y1), (0, 255, 0), 2)
         cv2_im = cv2.putText(cv2_im, label, (x0, y0+30),
