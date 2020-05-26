@@ -92,3 +92,14 @@ mobilenet_ssd_v2_coco_quant_postprocess_edgetpu.tflite, coco_labels.txt
 mobilenet_ssd_v2_face_quant_postprocess_edgetpu.tflite, coco_labels.txt
 ```
 
+For facial gesture recognition, we added an EdgeTPU model (trained on Google AutoML) and the label:
+
+```
+facial_gesture_20200525084408-edgetpu_model.tflite, fer_labels.txt
+```
+
+For Hand tracking, we added an EdgeTPU model and the label:
+
+```
+hand_tflite_graph_edgetpu.tflite, hand_label.txt
+```
