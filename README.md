@@ -92,4 +92,3 @@ mobilenet_ssd_v2_coco_quant_postprocess_edgetpu.tflite, coco_labels.txt
 mobilenet_ssd_v2_face_quant_postprocess_edgetpu.tflite, coco_labels.txt
 ```
 
-
