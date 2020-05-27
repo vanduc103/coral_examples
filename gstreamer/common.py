@@ -55,7 +55,10 @@ def set_input(interpreter, buf):
 def set_input2(interpreter, image, resample=Image.NEAREST):
     """Copies data to input tensor."""
     image = image.resize((input_image_size(interpreter)[0:2]), resample)
-    input_tensor(interpreter)[:, :] = image
+    if len(image.size) == 2:
+        input_tensor(interpreter)[:, :] = np.array(image)[:,:,np.newaxis]
+    else:
+        input_tensor(interpreter)[:, :] = image
 
 def output_tensor(interpreter, i):
     """Returns dequantized output tensor if quantized before."""
