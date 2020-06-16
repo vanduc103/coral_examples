@@ -142,7 +142,7 @@ def print_results(inference_rate, objs):
 from PIL import Image
 import numpy as np
 from datetime import datetime
-import cv2
+#import cv2
 import math
 
 def render_gen(args):
@@ -159,10 +159,16 @@ def render_gen(args):
     get_color = make_get_color(args.color, labels)
 
     # hand tracking engine
-    engines_hand, _ = utils.make_engines('/home/mendel/google-coral/examples-camera/all_models/hand_tflite_graph_edgetpu.tflite', DetectionEngine)
-    engines_hand = itertools.cycle(engines_hand)
-    engine_hand = next(engines_hand)
-    labels_hand = utils.load_labels('/home/mendel/google-coral/examples-camera/all_models/hand_label.txt')
+    if args.hand_tracking:
+        engines_hand, _ = utils.make_engines('/home/mendel/google-coral/examples-camera/all_models/hand_tflite_graph_edgetpu.tflite', DetectionEngine)
+        engines_hand = itertools.cycle(engines_hand)
+        engine_hand = next(engines_hand)
+        labels_hand = utils.load_labels('/home/mendel/google-coral/examples-camera/all_models/hand_label.txt')
+    # face detection engine
+    if args.face_detection:
+        engines_face, _ = utils.make_engines('/home/mendel/google-coral/examples-camera/all_models/mobilenet_ssd_v2_face_quant_postprocess_edgetpu.tflite', DetectionEngine)
+        engines_face = itertools.cycle(engines_face)
+        engine_face = next(engines_face)
 
     draw_overlay = True
 
@@ -175,29 +181,46 @@ def render_gen(args):
         inference_rate = next(fps_counter)
         if draw_overlay:
             start = time.monotonic()
-            objs = engine .detect_with_input_tensor(tensor, threshold=args.threshold, top_k=args.top_k)
-            objs_hand = engine_hand .detect_with_input_tensor(tensor, threshold=0.1, top_k=1)
+            objs = engine .detect_with_input_tensor(tensor, threshold=0.5, top_k=10)
             im = tensor
+            if args.hand_tracking:
+                objs_hand = engine_hand .detect_with_input_tensor(tensor, threshold=0.1, top_k=1)
+            if args.face_detection:
+                W, H = utils.input_image_size(engine)
+                im = np.reshape(im, (W, H, 3))
+                im = Image.fromarray(im)
+                objs_face = engine_face .detect_with_image(im, threshold=0.5, top_k=10)
             inference_time = time.monotonic() - start
             objs = [convert(obj, labels) for obj in objs]
-            objs_hand = [convert(obj, labels_hand) for obj in objs_hand]
+            if args.hand_tracking:
+                objs_hand = [convert(obj, labels_hand) for obj in objs_hand]
+            if args.face_detection:
+                objs_face = [convert(obj, None) for obj in objs_face]
 
             if labels and filtered_labels:
                 objs = [obj for obj in objs if obj.label in filtered_labels]
 
             objs = [obj for obj in objs if args.min_area <= obj.bbox.area() <= args.max_area]
-            objs = objs + objs_hand
+            if args.hand_tracking:
+                objs = objs + objs_hand
+            if args.face_detection:
+                objs = objs + objs_face
 
-            '''if len(objs) > 0:
-                size = len(im) / 3
-                width = height = int(math.sqrt(size))
-                im = np.reshape(im, (300, 300, 3))
-                im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-                #im = append_objs_to_img(im, objs, labels)
-                im = cv2.resize(im, (800, 800))
-                dt_str = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-                name = "image-" + dt_str + ".png"
-                cv2.imwrite("images/" + name, im)'''
+            if args.save and len(objs) > 0:
+                W, H = utils.input_image_size(engine)
+                im = np.reshape(im, (W, H, 3))
+                im = Image.fromarray(im)
+                for obj in objs:
+                    x, y, w, h = obj.bbox
+                    # scale up to real size
+                    x, y, w, h = int(x * W), int(y * H), int(w * W), int(h * H)
+                    crop_rectangle = (x, y, x+w, y+h)
+                    det = im.crop(crop_rectangle)
+                    det = det.resize((64, 128))
+                    #dt_str = datetime.now().strftime("%Y-%m-%d_%H:%M:%S.%f")[:-3]
+                    dt_str = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+                    name = obj.label + "-" + dt_str + ".png"
+                    det.save("images/" + name)
 
             if args.print and len(objs) > 0:
                 print_results(inference_rate, objs)
@@ -244,6 +267,12 @@ def add_render_gen_args(parser):
                         help='Bounding box display color'),
     parser.add_argument('--print', default=False, action='store_true',
                         help='Print inference results')
+    parser.add_argument('--hand_tracking', default=False, action='store_true',
+                        help='Use handtracking')
+    parser.add_argument('--face_detection', default=False, action='store_true',
+                        help='Use Face detection')
+    parser.add_argument('--save', default=False, action='store_true',
+                        help='Save detected objects')
 
 def main():
     run_app(add_render_gen_args, render_gen)

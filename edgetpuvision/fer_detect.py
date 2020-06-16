@@ -135,7 +135,9 @@ def convert(obj, labels):
                   bbox=BBox(x=x0, y=y0, w=x1 - x0, h=y1 - y0))
 
 def print_results(inference_rate, objs):
-    print('\nInference (rate=%.2f fps):' % inference_rate)
+    from datetime import datetime
+    print(datetime.now())
+    #print('\nInference (rate=%.2f fps):' % inference_rate)
     for i, obj in enumerate(objs):
         print('    %d: %s, area=%.2f' % (i, obj, obj.bbox.area()))
 
@@ -159,7 +161,7 @@ def render_gen(args):
     get_color = make_get_color(args.color, labels)
 
     # Facial gesture detection engine
-    engines_fer, _ = utils.make_engines('/home/mendel/google-coral/examples-camera/all_models/facial_model_7c_edgetpu.tflite', ClassificationEngine)
+    engines_fer, _ = utils.make_engines('/home/mendel/google-coral/examples-camera/all_models/facial_gesture_20200525084408-edgetpu_model.tflite', ClassificationEngine)
     engines_fer = itertools.cycle(engines_fer)
     engine_fer = next(engines_fer)
     labels_fer = utils.load_labels('/home/mendel/google-coral/examples-camera/all_models/fer_labels.txt')
@@ -190,8 +192,8 @@ def render_gen(args):
                     x, y, w, h = int(x * W), int(y * H), int(w * W), int(h * H)
                     crop_rectangle = (x, y, x+w, y+h)
                     face_part = im.crop(crop_rectangle)
-                    face_part.save("face.png")
-                    # invoke fer engine
+                    #face_part.save("face.png")
+                    # run classification engine, no need to convert image to gray-image, engine will do for us
                     objs_fer = engine_fer .classify_with_image(face_part, threshold=0.1, top_k=1)
                     if len(objs_fer) > 0:
                         setattr(obj, "label_id", objs_fer[0][0])
@@ -202,16 +204,21 @@ def render_gen(args):
 
             objs = [obj for obj in objs if args.min_area <= obj.bbox.area() <= args.max_area]
 
-            '''if len(objs) > 0:
-                size = len(im) / 3
-                width = height = int(math.sqrt(size))
-                im = np.reshape(im, (300, 300, 3))
-                im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+            if args.save and len(objs) > 0:
+                W, H = utils.input_image_size(engine)
+                im = np.reshape(im, (W, H, 3))
+                im = Image.fromarray(im)
                 #im = append_objs_to_img(im, objs, labels)
-                im = cv2.resize(im, (800, 800))
-                dt_str = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-                name = "image-" + dt_str + ".png"
-                cv2.imwrite("images/" + name, im)'''
+                for obj in objs:
+                    x, y, w, h = obj.bbox
+                    # scale up to real size
+                    x, y, w, h = int(x * W), int(y * H), int(w * W), int(h * H)
+                    crop_rectangle = (x, y, x+w, y+h)
+                    det = im.crop(crop_rectangle)
+                    det = det.resize((64, 128))
+                    dt_str = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+                    name = "face" + "-" + dt_str + ".png"
+                    det.save("faces/" + name)
 
             if args.print and len(objs) > 0:
                 print_results(inference_rate, objs)
@@ -258,6 +265,8 @@ def add_render_gen_args(parser):
                         help='Bounding box display color'),
     parser.add_argument('--print', default=False, action='store_true',
                         help='Print inference results')
+    parser.add_argument('--save', default=False, action='store_true',
+                        help='Save detected objects')
 
 def main():
     run_app(add_render_gen_args, render_gen)
