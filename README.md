@@ -103,3 +103,11 @@ For Hand tracking, we added an EdgeTPU model and the label:
 ```
 hand_tflite_graph_edgetpu.tflite, hand_label.txt
 ```
+
+For Pose estimation, we added 3 EdgeTPU pose estimation model (from Google posenet):
+
+```
+posenet_mobilenet_v1_075_353_481_quant_decoder_edgetpu.tflite
+posenet_mobilenet_v1_075_481_641_quant_decoder_edgetpu.tflite
+posenet_mobilenet_v1_075_721_1281_quant_decoder_edgetpu.tflite
+```
