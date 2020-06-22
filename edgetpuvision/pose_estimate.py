@@ -60,6 +60,16 @@ EDGES = (
     ('right knee', 'right ankle'),
 )
 
+TRAINING = (
+    #('left shoulder', 'left wrist'),
+    #('right shoulder', 'right wrist'),
+    #('left wrist', 'left hip'),
+    #('right wrist', 'right hip'),
+    ('left hip', 'left ankle'),
+    #('right hip', 'right ankle'),
+)
+TRAINING_SIZE = 4
+training = [None] * TRAINING_SIZE
 
 CSS_STYLES = str(svg.CssStyle({'.back': svg.Style(fill='black',
                                                   stroke='black',
@@ -95,7 +105,24 @@ def make_get_color(color, labels):
 
     return lambda obj_id: 'white'
 
-def overlay(title, objs, inference_size, inference_time, layout, threshold=0.2):
+def caldist(x1, y1, x2, y2):
+    import math
+    dist = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+    return dist
+
+def decretest(A):
+    for i in range( len(A) - 1 ):
+        if A[i] <= A[i+1]:
+            return False
+    return True
+
+def incretest(A):
+    for i in range( len(A) - 1 ):
+        if A[i] >= A[i+1]:
+            return False
+    return True
+
+def overlay(engine, title, objs, inference_size, inference_time, layout, idx, upcnt, downcnt, threshold=0.2):
     x0, y0, width, height = layout.window
     font_size = 0.03 * height
 
@@ -107,10 +134,11 @@ def overlay(title, objs, inference_size, inference_time, layout, threshold=0.2):
                   font_size=font_size, font_family='monospace', font_weight=500)
     doc += defs
 
-    xys = {}
     box_x, box_y, box_w, box_h = 0, 0, inference_size[0], inference_size[1]
     scale_x, scale_y = width / box_w, height / box_h
     for pose in objs:
+        xys = {}
+        kp_dist = {} # distance between keypoints
         for label, keypoint in pose.keypoints.items():
             if keypoint.score < threshold: continue
             percent = int(100 * keypoint.score)
@@ -122,11 +150,19 @@ def overlay(title, objs, inference_size, inference_time, layout, threshold=0.2):
 
             doc += svg.Circle(cx=kp_x, cy=kp_y, r=5, fill='cyan')
 
-            for a, b in EDGES:
-                if a not in xys or b not in xys: continue
-                ax, ay = xys[a]
-                bx, by = xys[b]
-                doc += svg.Line(x1=ax, y1=ay, x2=bx, y2=by, stroke='black', stroke_width=1)
+        for a, b in EDGES:
+            if a not in xys or b not in xys: continue
+            ax, ay = xys[a]
+            bx, by = xys[b]
+            doc += svg.Line(x1=ax, y1=ay, x2=bx, y2=by, stroke='black', stroke_width=1)
+
+        for a, b in TRAINING:
+            if a not in xys or b not in xys: continue
+            ax, ay = xys[a]
+            bx, by = xys[b]
+            dist = caldist(ax, ay, bx, by)
+            training[idx % TRAINING_SIZE] = int(dist)
+            idx += 1
 
     ox = x0 + 20
     oy1, oy2 = y0 + 20 + font_size, y0 + height - 20
@@ -138,10 +174,27 @@ def overlay(title, objs, inference_size, inference_time, layout, threshold=0.2):
         doc += svg.Text(title, x=ox, y=oy1, fill='white')
 
     # Info
-    lines = [
+    '''lines = [
         'Objects: %d' % len(objs),
         'Inference time: %.2f ms (%.2f fps)' % (inference_time * 1000, 1.0 / inference_time)
-    ]
+    ]'''
+
+    # Training Info
+    lines = []
+    if not (None in training):
+        #print(training)
+        label1 = 'Standing UP (' + str(upcnt) + ')'
+        label2 = 'Sitting DOWN (' + str(downcnt) + ')'
+        if incretest(training):
+            upcnt += 1
+            label1 = 'Standing UP (' + str(upcnt) + ')'
+        elif decretest(training):
+            downcnt += 1
+            label2 = 'Sitting DOWN (' + str(downcnt) + ')'
+        lines = [
+            'Workout: %s, %s' % (label1, label2),
+            'Inference time: %.2f ms (%.2f fps)' % (inference_time * 1000, 1.0 / inference_time)
+        ]
 
     for i, line in enumerate(reversed(lines)):
         y = oy2 - i * 1.7 * font_size
@@ -149,7 +202,7 @@ def overlay(title, objs, inference_size, inference_time, layout, threshold=0.2):
                        transform='translate(%s, %s) scale(1,-1)' % (ox, y), _class='back')
         doc += svg.Text(line, x=ox, y=y, fill='white')
 
-    return str(doc)
+    return str(doc), idx, upcnt, downcnt
 
 
 def convert(obj, labels):
@@ -171,7 +224,6 @@ from PIL import Image
 import numpy as np
 from datetime import datetime
 #import cv2
-
 def render_gen(args):
     fps_counter  = utils.avg_fps_counter(30)
 
@@ -187,6 +239,8 @@ def render_gen(args):
     yield utils.input_image_size(engine)
 
     output = None
+    idx = 0
+    upcnt, downcnt = 0, 0
     while True:
         tensor, layout, command = (yield output)
 
@@ -201,7 +255,7 @@ def render_gen(args):
                 print_results(outputs)
 
             title = titles[engine]
-            output = overlay(title, outputs, inference_size, inference_time, layout)
+            output, idx, upcnt, downcnt = overlay(engine, title, outputs, inference_size, inference_time, layout, idx, upcnt, downcnt)
         else:
             output = None
 
