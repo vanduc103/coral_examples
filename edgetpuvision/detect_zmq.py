@@ -17,11 +17,11 @@
 export TEST_DATA=/usr/lib/python3/dist-packages/edgetpu/test_data
 
 Run face detection model:
-python3 -m edgetpuvision.detect \
+python3 -m edgetpuvision.detect_zmq \
   --model ${TEST_DATA}/mobilenet_ssd_v2_face_quant_postprocess_edgetpu.tflite
 
 Run coco model:
-python3 -m edgetpuvision.detect \
+python3 -m edgetpuvision.detect_zmq \
   --model ${TEST_DATA}/mobilenet_ssd_v2_coco_quant_postprocess_edgetpu.tflite \
   --labels ${TEST_DATA}/coco_labels.txt
 """
@@ -144,6 +144,7 @@ import numpy as np
 from datetime import datetime
 import cv2
 import math
+import imagezmq
 
 def render_gen(args):
     fps_counter  = utils.avg_fps_counter(30)
@@ -174,12 +175,8 @@ def render_gen(args):
 
     yield utils.input_image_size(engine)
 
-    # imagezmq sender
-    if args.zmq:
-        import socket
-        import imagezmq
-        sender = imagezmq.ImageSender(connect_to='tcp://*:5556', REQ_REP=False) # REQ_REP=False: use PUB/SUB (non-block)
-        rpi_name = socket.gethostname()
+    # imagezmq receiver
+    image_hub = imagezmq.ImageHub(open_port='tcp://147.47.200.65:35556', REQ_REP=False) # REQ_REP=False: use PUB/SUB (non-block)
 
     output = None
     while True:
@@ -188,22 +185,19 @@ def render_gen(args):
         inference_rate = next(fps_counter)
         if draw_overlay:
             start = time.monotonic()
-            objs = engine .detect_with_input_tensor(tensor, threshold=0.5, top_k=10)
-            im = tensor
-            # imagezmq send image
-            if args.zmq:
-                W, H = utils.input_image_size(engine)
-                im = np.reshape(im, (W, H, 3))
-                im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-                sender.send_image(rpi_name, im)
+
+            # receive from zmq
+            _, image = image_hub.recv_image()
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            im_pil = Image.fromarray(image)
+
+            objs = engine .detect_with_image(im_pil, threshold=0.5, top_k=10)
 
             if args.hand:
-                objs_hand = engine_hand .detect_with_input_tensor(tensor, threshold=0.1, top_k=1)
+                objs_hand = engine_hand .detect_with_image(im_pil, threshold=0.1, top_k=1)
             if args.face:
-                W, H = utils.input_image_size(engine)
-                im = np.reshape(im, (W, H, 3))
-                im = Image.fromarray(im)
-                objs_face = engine_face .detect_with_image(im, threshold=0.5, top_k=10)
+                objs_face = engine_face .detect_with_image(im_pil, threshold=0.5, top_k=10)
+
             inference_time = time.monotonic() - start
             objs = [convert(obj, labels) for obj in objs]
             if args.hand:
@@ -274,8 +268,6 @@ def add_render_gen_args(parser):
                         help='Use Face detection')
     parser.add_argument('--save', default=False, action='store_true',
                         help='Save detected objects')
-    parser.add_argument('--zmq', default=False, action='store_true',
-                        help='Send frames via ZeroMQ')
 
 def main():
     run_app(add_render_gen_args, render_gen)
