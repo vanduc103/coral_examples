@@ -178,8 +178,9 @@ def render_gen(args):
     if args.zmq:
         import socket
         import imagezmq
+        from datetime import datetime
         sender = imagezmq.ImageSender(connect_to='tcp://*:5556', REQ_REP=False) # REQ_REP=False: use PUB/SUB (non-block)
-        rpi_name = socket.gethostname()
+        #rpi_name = socket.gethostname()
 
     output = None
     while True:
@@ -195,7 +196,8 @@ def render_gen(args):
                 W, H = utils.input_image_size(engine)
                 im = np.reshape(im, (W, H, 3))
                 im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-                sender.send_image(rpi_name, im)
+                timestamp = datetime.timestamp(datetime.now())
+                sender.send_image(timestamp, im)
 
             if args.hand:
                 objs_hand = engine_hand .detect_with_input_tensor(tensor, threshold=0.1, top_k=1)

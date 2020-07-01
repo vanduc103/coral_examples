@@ -36,8 +36,8 @@ from PIL import Image
 import re
 import time
 import tflite_runtime.interpreter as tflite
-import imagezmq
-from datetime import datetime
+import pyrealsense2 as rs
+from matplotlib import pyplot as plt
 
 Object = collections.namedtuple('Object', ['id', 'score', 'bbox'])
 
@@ -94,43 +94,70 @@ def main():
     interpreter.allocate_tensors()
     labels = load_labels(args.labels)
 
-    # imagezmq receiver
-    image_hub = imagezmq.ImageHub(open_port='tcp://147.47.200.65:35556', REQ_REP=False) # REQ_REP=False: use PUB/SUB (non-block)
+    # Configure depth and color streams
+    pipeline = rs.pipeline()
+    config = rs.config()
+    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
 
-    #cap = cv2.VideoCapture(args.camera_idx)
+    # Start streaming
+    profile = pipeline.start(config)
 
-    while True:
-        # receive from zmq
-        timestamp, frame = image_hub.recv_image()
-        dt = datetime.fromtimestamp(timestamp)
-        #frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        cv2_im = frame
+    try:
+        while True:
+            # Wait for a coherent pair of frames: depth and color
+            frames = pipeline.wait_for_frames()
+            depth_frame = frames.get_depth_frame()
+            color_frame = frames.get_color_frame()
+            if not depth_frame or not color_frame:
+                continue
 
-        cv2_im_rgb = cv2.cvtColor(cv2_im, cv2.COLOR_BGR2RGB)
-        pil_im = Image.fromarray(cv2_im_rgb)
+            # Convert images to numpy arrays
+            color = np.asanyarray(color_frame.get_data())
+            colorizer = rs.colorizer()
+            colorized_depth = np.asanyarray(colorizer.colorize(depth_frame).get_data())
+            
+            # Create alignment primitive with color as its target stream:
+            align = rs.align(rs.stream.color)
+            frames = align.process(frames)
 
-        start = time.monotonic()
-        common.set_input(interpreter, pil_im)
-        interpreter.invoke()
-        objs = get_output(interpreter, score_threshold=args.threshold, top_k=args.top_k)
-        inference_time = time.monotonic() - start
-        inference_time = 'Inference time: %.2f ms (%.2f fps)' % (inference_time * 1000, 1.0 / inference_time)
+            # Update color and depth frames:
+            aligned_depth_frame = frames.get_depth_frame()
+            colorized_depth = np.asanyarray(colorizer.colorize(aligned_depth_frame).get_data())
 
-        cv2_im = append_objs_to_img(cv2_im, objs, labels, inference_time, dt)
-        cv2_im = cv2.resize(cv2_im, (720, 720))
+            cv2_im = color
 
-        cv2.imshow('frame', cv2_im)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            cv2_im_rgb = cv2.cvtColor(cv2_im, cv2.COLOR_BGR2RGB)
+            pil_im = Image.fromarray(cv2_im_rgb)
 
-    cv2.destroyAllWindows()
+            start = time.monotonic()
+            common.set_input(interpreter, pil_im)
+            interpreter.invoke()
+            objs = get_output(interpreter, score_threshold=args.threshold, top_k=args.top_k)
+            inference_time = time.monotonic() - start
+            inference_time = 'Inference time: %.2f ms (%.2f fps)' % (inference_time * 1000, 1.0 / inference_time)
 
-def append_objs_to_img(cv2_im, objs, labels, inference_time, dt):
+            color = append_objs_to_img(color, objs, labels, inference_time)
+            # Calculate the distance
+            depth_scale = profile.get_device().first_depth_sensor().get_depth_scale()
+            color = calculate_distance(color, aligned_depth_frame, objs, labels, depth_scale)
+
+            # Stack both images horizontally
+            #images = np.hstack((color, colorized_depth))
+            #cv2.imwrite("image.jpg", images)
+
+            cv2.imshow('frame', color)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+    finally:
+        # Stop streaming
+        pipeline.stop()
+
+def append_objs_to_img(cv2_im, objs, labels, inference_time, calculate_distance=False):
     height, width, channels = cv2_im.shape
-    cv2_im = cv2.putText(cv2_im, str(dt), (0, height-60),
-                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-    cv2_im = cv2.putText(cv2_im, inference_time, (0, height-30),
-                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+    #cv2_im = cv2.putText(cv2_im, inference_time, (0, height-30),
+    #                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
     for obj in objs:
         x0, y0, x1, y1 = list(obj.bbox)
         x0, y0, x1, y1 = int(x0*width), int(y0*height), int(x1*width), int(y1*height)
@@ -140,6 +167,28 @@ def append_objs_to_img(cv2_im, objs, labels, inference_time, dt):
         cv2_im = cv2.rectangle(cv2_im, (x0, y0), (x1, y1), (0, 255, 0), 1)
         cv2_im = cv2.putText(cv2_im, label, (x0, y0+30),
                              cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 0, 0), 1)
+    return cv2_im
+
+def calculate_distance(cv2_im, aligned_depth_frame, objs, labels, depth_scale):
+    height, width, channels = cv2_im.shape
+    i = 0
+    for obj in objs:
+        i += 1
+        x0, y0, x1, y1 = list(obj.bbox)
+        x0, y0, x1, y1 = int(x0*width), int(y0*height), int(x1*width), int(y1*height)
+        percent = int(100 * obj.score)
+        label = labels.get(obj.id, obj.id)
+
+        depth = np.asanyarray(aligned_depth_frame.get_data())
+        # Crop depth data:
+        depth = depth[x0:x1,y0:y1].astype(float)
+
+        # Get data scale from the device and convert to meters
+        depth = depth * depth_scale
+        dist,_,_,_ = cv2.mean(depth)
+        distance = "Detected a {0} {1:.3} meters away.".format(label, dist)
+        cv2_im = cv2.putText(cv2_im, distance, (0, height-i*30),
+                             cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 1)
     return cv2_im
 
 if __name__ == '__main__':
