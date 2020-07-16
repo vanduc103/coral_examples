@@ -33,6 +33,10 @@ def set_input(interpreter, image, resample=Image.NEAREST):
     image = image.resize((input_image_size(interpreter)[0:2]), resample)
     input_tensor(interpreter)[:, :] = image
 
+def set_input_pose(interpreter, points):
+    """Copies data to input tensor."""
+    input_tensor(interpreter)[:] = points
+
 def input_image_size(interpreter):
     """Returns input image size as (width, height, channels) tuple."""
     _, height, width, channels = interpreter.get_input_details()[0]['shape']

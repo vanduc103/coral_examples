@@ -22,6 +22,11 @@ import common
 
 from edgetpu.detection.engine import DetectionEngine
 
+BODY_PARTS = {"nose": 0, "left eye": 1, "right eye": 2, "left ear": 3, "right ear": 4,
+                      "left shoulder": 5, "right shoulder": 6, "left elbow": 7, "right elbow": 8, "left wrist": 9,
+                      "right wrist": 10, "left hip": 11, "right hip": 12, "left knee": 13, "right knee": 14,
+                      "left ankle": 15, "right ankle": 16}
+
 EDGES = (
     ('nose', 'left eye'),
     ('nose', 'right eye'),
@@ -45,10 +50,11 @@ EDGES = (
 )
 
 import zmq
+from datetime import datetime
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--camera_idx', type=str, help='Index of which video source to use. ', default = 0)
+    parser.add_argument('--camera_idx', type=str, help='Index of which video source to use. ', default = 1)
     parser.add_argument('--model', type=str, help='Pose model to use. ', default = '')
     parser.add_argument('--detect', action='store_true', help='Detect person', default = False)
     parser.add_argument('--filtered_labels', type=str, help='Filtered labels. ', default = '0')
@@ -94,6 +100,7 @@ def main():
 
         poses, inference_time = engine.DetectPosesInImage(np.uint8(pil_image))
         cv2_im, all_points = draw_skel_and_kp(cv2_im, poses, detect_objs)
+        #print(all_points.shape)
         
         if args.zmq:
             # imagezmq send image
@@ -102,7 +109,8 @@ def main():
             #sender_img.send_image(timestamp, cv2_im_rgb)
 
             # zmq send points
-            send_array(socket, np.array(all_points))
+            timestamp = datetime.timestamp(datetime.now())
+            send_array(socket, np.array(all_points).astype(np.float), timestamp)
 
         cv2.namedWindow("frame", cv2.WND_PROP_FULLSCREEN)
         cv2.setWindowProperty("frame",cv2.WND_PROP_FULLSCREEN,cv2.WINDOW_FULLSCREEN)
@@ -125,6 +133,7 @@ def draw_skel_and_kp(
     for pose in poses:
         if pose.score < min_pose_score: continue
         xys = {}
+        points = [(-1., -1.)] * 17
         for label, keypoint in pose.keypoints.items():
             if keypoint.score < min_part_score: continue
             # Coord
@@ -132,9 +141,9 @@ def draw_skel_and_kp(
             kp_x = keypoint.yx[1]
             xys[label] = (kp_x, kp_y)
             cv_keypoints.append(cv2.KeyPoint(int(kp_x), int(kp_y), 10. * keypoint.score))
-        points = [(kp.pt[0], kp.pt[1]) for kp in cv_keypoints]
-        all_points.append(points)
-        #print(points)
+            points[BODY_PARTS[label]] = (int(kp_x), int(kp_y))
+
+        all_points.append(np.array(np.stack([p for p in points], axis=0)))
 
         results = []
         for a, b in EDGES:
@@ -143,6 +152,8 @@ def draw_skel_and_kp(
             bx, by = xys[b]
             results.append(np.array([[ax, ay], [bx, by]]).astype(np.int32),)
         adjacent_keypoints.extend(results)
+    if len(all_points) > 0:
+        all_points = np.stack([points for points in all_points], axis=0)
 
     height, width, channels = img.shape
     for obj in detect_objs:
@@ -154,11 +165,12 @@ def draw_skel_and_kp(
         out_img, cv_keypoints, outImage=np.array([]), color=(0, 0, 0),
         flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
     out_img = cv2.polylines(out_img, adjacent_keypoints, isClosed=False, color=(0, 255, 255), thickness=2)
-    return out_img, all_points
+    return out_img, np.array(all_points)
 
-def send_array(socket, A, flags=0, copy=True, track=False):
+def send_array(socket, A, msg='None', flags=0, copy=True, track=False):
     """send a numpy array with metadata"""
     md = dict(
+        msg = msg,
         dtype = str(A.dtype),
         shape = A.shape,
     )
