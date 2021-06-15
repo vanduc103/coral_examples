@@ -117,9 +117,11 @@ def main():
         inference_time = 'Inference time: %.2f ms (%.2f fps)' % (inference_time * 1000, 1.0 / inference_time)
 
         cv2_im = append_objs_to_img(cv2_im, objs, labels, inference_time, dt)
-        cv2_im = cv2.resize(cv2_im, (720, 720))
+        #cv2_im = cv2.resize(cv2_im, (720, 720))
 
-        cv2.imshow('frame', cv2_im)
+        cv2.namedWindow("frame", cv2.WND_PROP_FULLSCREEN)
+        cv2.setWindowProperty("frame",cv2.WND_PROP_FULLSCREEN,cv2.WINDOW_FULLSCREEN)
+        cv2.imshow("frame", cv2_im)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import time
 import numpy as np
 from PIL import Image
 from pose_engine import PoseEngine
@@ -150,8 +151,8 @@ POSE_PAIRS = [["Nose", "LEye"], ["Nose", "REye"], ["Nose", "LEar"],
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--camera_idx', type=str, help='Index of which video source to use. ', default = 0)
-    parser.add_argument('--model', type=str, help='Pose model to use. ', default = '')
-    parser.add_argument('--pose3d', type=str, help='3D Pose model to use. ', default = '')
+    parser.add_argument('--model', type=str, help='Pose model to use. ', default = 'models/posenet_mobilenet_v1_075_481_641_quant_decoder_edgetpu.tflite')
+    parser.add_argument('--pose3d', type=str, help='3D Pose model to use. ', default = 'models/3dpose_gan_edgetpu.tflite')
     parser.add_argument('--dataset', type=str, help='Type of dataset. ', default="CORAL")
     parser.add_argument('--rot', type=int, help='Number of degree to rotate in 3D pose. ', default=90)
     args = parser.parse_args()
@@ -175,8 +176,15 @@ def main():
         pil_image = Image.fromarray(cv2_im_rgb)
         pil_image.resize((image_width, image_height), Image.NEAREST)
 
+        start_time = time.monotonic()
         poses, inference_time = engine.DetectPosesInImage(np.uint8(pil_image))
+        print('2D Pose Inference time: %.fms (%.2f fps)' % (inference_time, 1000/inference_time))
+
         cv2_im = draw_skel_and_kp(cv2_im, poses, args.rot, interpreter_3dpose)
+
+        end_time = time.monotonic()
+        process_time = 1000 * (end_time - start_time)
+        print('3D Pose End-to-End Inference time: %.fms (%.2f fps)' % (process_time, 1000/process_time))
         
         cv2.namedWindow("frame", cv2.WND_PROP_FULLSCREEN)
         cv2.setWindowProperty("frame",cv2.WND_PROP_FULLSCREEN,cv2.WINDOW_FULLSCREEN)

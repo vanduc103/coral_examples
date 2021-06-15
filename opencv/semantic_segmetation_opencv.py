@@ -26,7 +26,7 @@ python3 examples/semantic_segmentation.py \
 import argparse
 import platform
 import subprocess
-from edgetpu.segmentation.engine import SegmentationEngine
+from segment_engine import SegmentationEngine
 from edgetpu.utils import dataset_utils, image_processing
 from PIL import Image
 from PIL import ImageDraw
@@ -83,8 +83,7 @@ def main():
       help='Path of the segmentation model.',
       required=True)
   parser.add_argument(
-      '--input', help='File path of the input image.', required=True)
-  parser.add_argument('--output', help='File path of the output image.')
+      '--camera_idx', type=str, help='Camera index.', default=0)
   parser.add_argument(
       '--keep_aspect_ratio',
       dest='keep_aspect_ratio',
@@ -96,15 +95,18 @@ def main():
           'option should be the same as what is applied on input images during '
           'model training. Otherwise the accuracy may be affected and the '
           'bounding box of detection result may be stretched.'))
+  parser.add_argument(
+      '--concat', type=bool, help='Concat original image and segmentation image?', default=False)
   parser.set_defaults(keep_aspect_ratio=False)
   args = parser.parse_args()
 
   # Initialize engine.
   engine = SegmentationEngine(args.model)
   _, height, width, _ = engine.get_input_tensor_shape()
+  print("Load all models done!")
 
   # Read frame from camera (or video)
-  cap = cv2.VideoCapture(args.input)
+  cap = cv2.VideoCapture(args.camera_idx)
 
   while cap.isOpened():
     ret, frame = cap.read()
@@ -130,40 +132,28 @@ def main():
     # If keep_aspect_ratio, we need to remove the padding area.
     result = result[:new_height, :new_width]
     vis_result = label_to_color_image(result.astype(int)).astype(np.uint8)
-    vis_result = Image.fromarray(vis_result)
 
-    vis_img = resized_img.crop((0, 0, new_width, new_height))
-    # Concat resized input image and processed segmentation results.
-    concated_image = Image.new('RGB', (new_width*2, new_height))
-    concated_image.paste(vis_img, (0, 0))
-    concated_image.paste(vis_result, (width, 0))
+    if args.concat:
+        vis_result = Image.fromarray(vis_result)
+        vis_img = resized_img.crop((0, 0, new_width, new_height))
+        # Concat resized input image and processed segmentation results.
+        concated_image = Image.new('RGB', (new_width*2, new_height))
+        concated_image.paste(vis_img, (0, 0))
+        concated_image.paste(vis_result, (width, 0))
 
-    #cv2_im = append_objs_to_img(cv2_im, vis_result)
-    concated_image = np.array(concated_image)
-    concated_image = concated_image[:, :, ::-1].copy()
-    cv2.imshow('frame', concated_image)
+        concated_image = np.array(concated_image)
+        concated_image = concated_image[:, :, ::-1].copy()
+        cv2.imshow('frame', concated_image)
+    else:
+        cv2.namedWindow("frame", cv2.WND_PROP_FULLSCREEN)
+        cv2.setWindowProperty("frame",cv2.WND_PROP_FULLSCREEN,cv2.WINDOW_FULLSCREEN)
+        cv2.imshow('frame', vis_result)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
   cap.release()
   cv2.destroyAllWindows()
-
-def append_objs_to_img(cv2_im, objs):
-    height, width, channels = cv2_im.shape
-    for obj in objs:
-        x0, y0, x1, y1 = list(obj.bbox)
-        x0, y0, x1, y1 = int(x0*width), int(y0*height), int(x1*width), int(y1*height)
-        percent = int(100 * obj.score)
-        label = '{}% {}'.format(percent, labels.get(obj.id, obj.id))
-        '''is_human = labels.get(obj.id, obj.id)
-        if (is_human != 'person'):
-            continue'''
-
-        cv2_im = cv2.rectangle(cv2_im, (x0, y0), (x1, y1), (0, 255, 0), 2)
-        cv2_im = cv2.putText(cv2_im, label, (x0, y0+30),
-                             cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0), 2)
-    return cv2_im
 
 if __name__ == '__main__':
   main()

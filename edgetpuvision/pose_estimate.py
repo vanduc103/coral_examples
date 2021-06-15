@@ -266,8 +266,8 @@ def render_gen(args):
 
 
 def add_render_gen_args(parser):
-    parser.add_argument('--model',
-                        help='.tflite model path', required=True)
+    parser.add_argument('--model', default='../all_models/posenet_mobilenet_v1_075_481_641_quant_decoder_edgetpu.tflite',
+                        help='.tflite model path', required=False)
     parser.add_argument('--labels',
                         help='labels file path')
     parser.add_argument('--top_k', type=int, default=10,

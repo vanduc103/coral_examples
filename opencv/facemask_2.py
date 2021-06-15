@@ -197,8 +197,8 @@ def single_class_non_max_suppression(bboxes, confidences, conf_thresh=0.2, iou_t
 
 def main():
     default_model_dir = '../all_models'
-    default_model = 'one_nn_det_100_3.tflite'
-    default_labels = 'one_nn_label.txt'
+    default_model = 'face_mask_detector_tpu.tflite'
+    default_labels = 'face_mask_label.txt'
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', help='.tflite model path',
                         default=os.path.join(default_model_dir,default_model))
@@ -256,24 +256,6 @@ def det_and_display(cv2_im, interpreter, labels, threshold):
 
     interpreter.invoke()
 
-    # The function `get_tensor()` returns a copy of the tensor data.
-    # Use `tensor()` in order to get a pointer to the tensor.
-    # output_data1 = interpreter.get_tensor(output_details[0]['index'])[0]
-    # output_data2 = interpreter.get_tensor(output_details[1]['index'])[0]
-    # output_data3 = interpreter.get_tensor(output_details[2]['index'])[0]
-    # output_data4 = interpreter.get_tensor(output_details[3]['index'])[0]
-    # print(output_data1,output_data2,output_data3,output_data4)
-    #
-    # for bb,score,cls in zip(output_data1,output_data3,output_data2):
-    #     if score > threshold:
-    #     # print(cls)
-    #         x1 = int(bb[1]*img_orig_shape[1])
-    #         x2 = int(bb[3]*img_orig_shape[1])
-    #         y1 = int(bb[0]*img_orig_shape[0])
-    #         y2 = int(bb[2]*img_orig_shape[0])
-    #         cv2.rectangle(cv2_im,(x1,y1),(x2,y2),(111,255,220), thickness=2)
-    #         cv2.putText(cv2_im,labels[int(cls)],(int((x1+x2)/2),int((y1+y2)/2)), cv2.FONT_HERSHEY_SIMPLEX, 3,(100, 210, 0),3)
-    # final = cv2.resize(cv2_im, (600,600))
     # return final
     feature_map_sizes = [[33, 33], [17, 17], [9, 9], [5, 5], [3, 3]]
     anchor_sizes = [[0.04, 0.056], [0.08, 0.11], [0.16, 0.22], [0.32, 0.45], [0.64, 0.72]]
@@ -327,37 +309,6 @@ def det_and_display(cv2_im, interpreter, labels, threshold):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, color)
 
     #final = cv2.resize(cv2_im, (600,600))
-    return cv2_im
-
-def normalize(val):
-    if val < 0.0:
-        val = 0.0
-    if val > 1.0:
-        val = 1.0
-    return val
-
-def append_objs_to_img(cv2_im, objs, labels):
-    height, width, channels = cv2_im.shape
-    for obj in objs:
-        #print(obj.bbox)
-        try:
-          x0, y0, x1, y1 = list(obj.bbox)
-          x0, y0, x1, y1 = normalize(x0), normalize(y0), normalize(x1), normalize(y1)
-          x0, y0, x1, y1 = int(x0*width), int(y0*height), int(x1*width), int(y1*height)
-          #print(x0,y0,x1,y1)
-          percent = int(100 * obj.score)
-          label = '{}% {}'.format(percent, labels.get(obj.id, obj.id))
-
-          if obj.id != 0:
-            cv2_im = cv2.rectangle(cv2_im, (x0, y0), (x1, y1), (0, 255, 0), 2)
-            cv2_im = cv2.putText(cv2_im, label, (x0, y0+30),
-                             cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0), 2)
-          else:
-            cv2_im = cv2.rectangle(cv2_im, (x0, y0), (x1, y1), (0, 0, 255), 2)
-            cv2_im = cv2.putText(cv2_im, label, (x0, y0+30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
-        except:
-            pass
-
     return cv2_im
 
 if __name__ == '__main__':

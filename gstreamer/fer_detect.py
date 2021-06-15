@@ -40,6 +40,7 @@ import os
 import re
 import svgwrite
 import time
+import cv2
 
 #Object = collections.namedtuple('Object', ['id', 'score', 'bbox'])
 class Object():
@@ -110,9 +111,9 @@ def get_output(interpreter, score_threshold, top_k=1, image_scale=1.0):
 
 Category = collections.namedtuple('Category', ['id', 'score'])
 
-def get_output2(interpreter, top_k, score_threshold):
-    """Returns no more than top_k categories with score >= score_threshold."""
+def get_emotion(interpreter, top_k=1, score_threshold=0.1):
     scores = common.output_tensor(interpreter, 0)
+    print(scores)
     categories = [
         Category(i, scores[i])
         for i in np.argpartition(scores, -top_k)[-top_k:]
@@ -141,14 +142,14 @@ def main():
     args = parser.parse_args()
 
     print('Loading {} with {} labels.'.format(args.model, args.labels))
-    interpreter = common.make_interpreter(os.path.join(default_model_dir,default_model))
-    interpreter.allocate_tensors()
+    face_interpreter = common.make_interpreter(os.path.join(default_model_dir,default_model))
+    face_interpreter.allocate_tensors()
     # fer interpreter
-    interpreter_fer = common.make_interpreter(args.model)
-    interpreter_fer.allocate_tensors()
+    fer_interpreter = common.make_interpreter(args.model)
+    fer_interpreter.allocate_tensors()
     labels = load_labels(args.labels)
 
-    w, h, _ = common.input_image_size(interpreter)
+    w, h, _ = common.input_image_size(face_interpreter)
     inference_size = (w, h)
     # Average fps over last 30 frames.
     fps_counter  = common.avg_fps_counter(30)
@@ -156,16 +157,17 @@ def main():
     def user_callback(input_tensor, src_size, inference_box):
       nonlocal fps_counter
       start_time = time.monotonic()
-      common.set_input(interpreter, input_tensor)
-      interpreter.invoke()
+      common.set_input(face_interpreter, input_tensor)
+      face_interpreter.invoke()
       # For larger input image sizes, use the edgetpu.classification.engine for better performance
-      objs = get_output(interpreter, args.threshold, args.top_k)
+      objs = get_output(face_interpreter, args.threshold, args.top_k)
       # Get face detected part
       from PIL import Image
-      im = Image.fromarray(common.input_tensor(interpreter))
+      im = Image.fromarray(common.input_tensor(face_interpreter))
       src_w, src_h = src_size
       inf_w, inf_h = inference_size
       results = []
+      emo_objs = []
       for obj in objs:
         x0, y0, x1, y1 = list(obj.bbox)
         # Relative coordinates.
@@ -173,24 +175,37 @@ def main():
         # Absolute coordinates, input tensor space.
         x, y, w, h = int(x * inf_w), int(y * inf_h), int(w * inf_w), int(h * inf_h)
         crop_rectangle = (x, y, x+w, y+h)
-        face_part = im.crop(crop_rectangle)
+        # get face
+        face = im.crop(crop_rectangle)
+        face = np.array(face)
+        # convert to grayscale
+        #face = cv2.cvtColor(face, cv2.COLOR_RGB2GRAY)
+        print(face.shape)
+        face = cv2.resize(face, (224, 224))
+        face = face.astype(np.uint8)
+        #face /= float(face.max())
+        face = np.reshape(face.flatten(), (224, 224, 3))
         # invoke fer interpreter
-        common.set_input2(interpreter_fer, face_part)
-        interpreter_fer.invoke()
-        results = get_output2(interpreter_fer, args.top_k, args.threshold)
+        common.set_input2(fer_interpreter, face)
+        fer_interpreter.invoke()
+        # process results
+        results = get_emotion(fer_interpreter)
         if len(results) > 0:
             setattr(obj, "id", results[0].id)
             setattr(obj, "score", results[0].score)
-      
+            emo_objs.append(obj)
+      objs = emo_objs
       end_time = time.monotonic()
+
       text_lines = []
-      text_lines = [
-          'Inference: {:.2f} ms'.format((end_time - start_time) * 1000),
-          'FPS: {} fps'.format(round(next(fps_counter))),
-      ]
-      for result in results:
-          text_lines.append('score={:.2f}: {}'.format(result.score, labels.get(result.id, result.id)))
-      print(' '.join(text_lines))
+      if len(objs) > 0:
+          text_lines = [
+              'Inference: {:.2f} ms'.format((end_time - start_time) * 1000),
+              'FPS: {} fps'.format(round(next(fps_counter))),
+          ]
+          for result in results:
+              text_lines.append('score={:.2f}: {}'.format(result.score, labels.get(result.id, result.id)))
+          #print(' '.join(text_lines))
       return generate_svg(src_size, inference_size, inference_box, objs, labels, text_lines)
 
     result = gstreamer.run_pipeline(user_callback,
