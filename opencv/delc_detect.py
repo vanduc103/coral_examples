@@ -38,6 +38,7 @@ import csv
 import time
 import datetime
 import tflite_runtime.interpreter as tflite
+import glob
 
 Object = collections.namedtuple('Object', ['id', 'score', 'bbox'])
 
@@ -75,25 +76,19 @@ def get_output(interpreter, score_threshold, top_k, image_scale=1.0):
     return [make(i) for i in range(top_k) if scores[i] >= score_threshold]
 
 import asyncio
-import easySocket
-s = easySocket.connect_tcp("147.47.200.64", 38000)
 
-async def saving(pil_im, class_names, scores, boxes, images_dir, predictions_dir, nodetection_images_dir):
+async def saving(pil_im, img_name, class_names, scores, boxes, images_dir, predictions_dir):
     # save the detection results
     start_time = time.monotonic()
     if len(class_names) > 0:
         # save the image file
         t = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        image_name = t + ".jpg"
+        image_name = img_name + ".jpg"
         image_path = os.path.join(images_dir, image_name)
         pil_im.save(image_path)
-        # send image file to server
-        easySocket.send_text('image', s)
-        easySocket.send_text(image_name, s)
-        easySocket.send_file(image_path, s)
         
         # save the prediction
-        csv_name = t + ".csv"
+        csv_name = img_name + ".csv"
         csv_path = os.path.join(predictions_dir, csv_name)
         f = open(csv_path, 'w')
         with f:
@@ -103,23 +98,9 @@ async def saving(pil_im, class_names, scores, boxes, images_dir, predictions_dir
             (width, height) = pil_im.size
             writer.writerow({'timestamp': t, 'width' : width, 'height': height, 'image_name': image_name, 'image_path': image_path, 
                             'class_names': str(class_names), 'scores': str(scores), 'boxes': str(boxes)})
-        # send csv file to server
-        easySocket.send_text('csv', s)
-        easySocket.send_text(csv_name, s)
-        easySocket.send_file(csv_path, s)
-    # no detection, save the image only
-    else:
-        t = datetime.datetime.now()
-        image_name = t.strftime("%Y%m%d_%H%M%S_%f") + ".jpg"
-        image_path = os.path.join(nodetection_images_dir, image_name)
-        pil_im.save(image_path)
-        # send image file to server
-        easySocket.send_text('image', s)
-        easySocket.send_text(image_name, s)
-        easySocket.send_file(image_path, s)
         
     end_time = time.monotonic()
-    print('Saving time: {:.2f} ms'.format((end_time - start_time) * 1000))
+    #print('Saving time: {:.2f} ms'.format((end_time - start_time) * 1000))
 
 async def main():
     default_model_dir = '../all_models'
@@ -130,13 +111,13 @@ async def main():
                         default=os.path.join(default_model_dir,default_model))
     parser.add_argument('--labels', help='label file path',
                         default=os.path.join(default_model_dir, default_labels))
-    parser.add_argument('--top_k', type=int, default=3,
+    parser.add_argument('--top_k', type=int, default=100,
                         help='number of categories with highest score to display')
     parser.add_argument('--camera_idx', type=str, help='Index of which video source to use. ', default = 0)
-    parser.add_argument('--threshold', type=float, default=0.1,
+    parser.add_argument('--threshold', type=float, default=0.5,
                         help='classifier score threshold')
                         
-    parser.add_argument('--input_path', type=str, default='/home/mendel/dataset/seoul.mp4',
+    parser.add_argument('--input_path', type=str, default='/home/mendel/dataset/katech_sample/1/images/*.jpg',
                         help='Input path for the testing video')
     parser.add_argument('--output_path', type=str, default='/home/mendel/dataset/output',
                         help='Output path to save the results')
@@ -152,12 +133,6 @@ async def main():
     predictions_dir = os.path.join(detection_dir, 'predictions')
     if not os.path.isdir(predictions_dir):
         os.makedirs(predictions_dir)
-    nodetection_dir = os.path.join(args.output_path, 'nodetection')
-    if not os.path.isdir(nodetection_dir):
-        os.makedirs(nodetection_dir)
-    nodetection_images_dir = os.path.join(nodetection_dir, 'images')
-    if not os.path.isdir(nodetection_images_dir):
-        os.makedirs(nodetection_images_dir)
 
     print('Loading {} with {} labels.'.format(args.model, args.labels))
     interpreter = common.make_interpreter(args.model)
@@ -165,13 +140,16 @@ async def main():
     labels = load_labels(args.labels)
 
     #cap = cv2.VideoCapture(args.camera_idx)
-    cap = cv2.VideoCapture(args.input_path)
+    #cap = cv2.VideoCapture(args.input_path)
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        cv2_im = frame
+    #while cap.isOpened():
+    for f in glob.glob(args.input_path):
+        #ret, frame = cap.read()
+        #if not ret:
+        #    break
+        #cv2_im = frame
+        cv2_im = cv2.imread(f)
+        img_name = os.path.basename(f).split(".")[0]
 
         #start_time = time.monotonic()
         cv2_im_rgb = cv2.cvtColor(cv2_im, cv2.COLOR_BGR2RGB)
@@ -182,20 +160,20 @@ async def main():
         objs = get_output(interpreter, score_threshold=args.threshold, top_k=args.top_k)
         
         # show the results
-        cv2_im = append_objs_to_img(cv2_im, objs, labels)
-        cv2.imshow('frame', cv2_im)
+        #cv2_im = append_objs_to_img(cv2_im, objs, labels)
+        #cv2.imshow('frame', cv2_im)
         #end_time = time.monotonic()
         #print('Showing time: {:.2f} ms'.format((end_time - start_time) * 1000))
         
         # save detection results
         class_names, scores, boxes = get_detection_results(objs, labels)
-        await saving(pil_im, class_names, scores, boxes, images_dir, predictions_dir, nodetection_images_dir)
+        await saving(pil_im, img_name, class_names, scores, boxes, images_dir, predictions_dir)
         
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-    cap.release()
-    cv2.destroyAllWindows()
+    #cap.release()
+    #cv2.destroyAllWindows()
 
 def get_detection_results(objs, labels):
     class_names = []
