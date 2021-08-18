@@ -12,13 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A demo that runs object detection on camera frames using OpenCV.
+"""Object detection on camera frames using OpenCV. Streaming results to DELC system
 
 TEST_DATA=../all_models
-
-Run face detection model:
-python3 detect.py \
-  --model ${TEST_DATA}/mobilenet_ssd_v2_face_quant_postprocess_edgetpu.tflite
 
 Run coco model:
 python3 detect.py \
@@ -77,7 +73,7 @@ def get_output(interpreter, score_threshold, top_k, image_scale=1.0):
 
 import asyncio
 
-async def saving(pil_im, img_name, class_names, scores, boxes, images_dir, predictions_dir):
+async def saving(pil_im, inference_time, img_name, class_names, scores, boxes, images_dir, predictions_dir):
     # save the detection results
     start_time = time.monotonic()
     if len(class_names) > 0:
@@ -92,11 +88,12 @@ async def saving(pil_im, img_name, class_names, scores, boxes, images_dir, predi
         csv_path = os.path.join(predictions_dir, csv_name)
         f = open(csv_path, 'w')
         with f:
-            fnames = ['timestamp', 'width', 'height', 'image_name', 'image_path', 'class_names', 'scores', 'boxes']
+            fnames = ['fps', 'timestamp', 'width', 'height', 'image_name', 'image_path', 'class_names', 'scores', 'boxes']
             writer = csv.DictWriter(f, fieldnames=fnames)
             writer.writeheader()
             (width, height) = pil_im.size
-            writer.writerow({'timestamp': t, 'width' : width, 'height': height, 'image_name': image_name, 'image_path': image_path, 
+            fps = int(1000./inference_time)
+            writer.writerow({'fps': fps, 'timestamp': t, 'width' : width, 'height': height, 'image_name': image_name, 'image_path': image_path, 
                             'class_names': str(class_names), 'scores': str(scores), 'boxes': str(boxes)})
         
     end_time = time.monotonic()
@@ -117,14 +114,14 @@ async def main():
     parser.add_argument('--threshold', type=float, default=0.5,
                         help='classifier score threshold')
                         
-    parser.add_argument('--input_path', type=str, default='/home/mendel/dataset/katech_sample/1/images/*.jpg',
+    parser.add_argument('--input_path', type=str, default='',
                         help='Input path for the testing video')
-    parser.add_argument('--output_path', type=str, default='/home/mendel/dataset/output',
+    parser.add_argument('--output_path', type=str, default='',
                         help='Output path to save the results')
     args = parser.parse_args()
     
     # make output dirs
-    detection_dir = os.path.join(args.output_path, 'detection')
+    detection_dir = os.path.join(args.output_path)
     if not os.path.isdir(detection_dir):
         os.makedirs(detection_dir)
     images_dir = os.path.join(detection_dir, 'images')
@@ -143,7 +140,7 @@ async def main():
     #cap = cv2.VideoCapture(args.input_path)
 
     #while cap.isOpened():
-    for f in glob.glob(args.input_path):
+    for f in glob.glob(args.input_path + "*.jpg"):
         #ret, frame = cap.read()
         #if not ret:
         #    break
@@ -156,7 +153,12 @@ async def main():
         pil_im = Image.fromarray(cv2_im_rgb)
 
         common.set_input(interpreter, pil_im)
+        
+        start_time = time.monotonic()
         interpreter.invoke()
+        end_time = time.monotonic()
+        inference_time = (end_time - start_time)*1000
+        
         objs = get_output(interpreter, score_threshold=args.threshold, top_k=args.top_k)
         
         # show the results
@@ -167,7 +169,7 @@ async def main():
         
         # save detection results
         class_names, scores, boxes = get_detection_results(objs, labels)
-        await saving(pil_im, img_name, class_names, scores, boxes, images_dir, predictions_dir)
+        await saving(pil_im, inference_time, img_name, class_names, scores, boxes, images_dir, predictions_dir)
         
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
