@@ -74,27 +74,25 @@ def get_output(interpreter, score_threshold, top_k, image_scale=1.0):
 import asyncio
 
 async def saving(pil_im, inference_time, img_name, class_names, scores, boxes, images_dir, predictions_dir):
-    # save the detection results
     start_time = time.monotonic()
-    if len(class_names) > 0:
-        # save the image file
-        t = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        image_name = img_name + ".jpg"
-        image_path = os.path.join(images_dir, image_name)
-        pil_im.save(image_path)
-        
-        # save the prediction
-        csv_name = img_name + ".csv"
-        csv_path = os.path.join(predictions_dir, csv_name)
-        f = open(csv_path, 'w')
-        with f:
-            fnames = ['fps', 'timestamp', 'width', 'height', 'image_name', 'image_path', 'class_names', 'scores', 'boxes']
-            writer = csv.DictWriter(f, fieldnames=fnames)
-            writer.writeheader()
-            (width, height) = pil_im.size
-            fps = int(1000./inference_time)
-            writer.writerow({'fps': fps, 'timestamp': t, 'width' : width, 'height': height, 'image_name': image_name, 'image_path': image_path, 
-                            'class_names': str(class_names), 'scores': str(scores), 'boxes': str(boxes)})
+    # save the image file
+    t = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    image_name = img_name + ".jpg"
+    image_path = os.path.join(images_dir, image_name)
+    pil_im.save(image_path)
+    
+    # save the prediction
+    csv_name = img_name + ".csv"
+    csv_path = os.path.join(predictions_dir, csv_name)
+    f = open(csv_path, 'w')
+    with f:
+        fnames = ['fps', 'timestamp', 'width', 'height', 'image_name', 'image_path', 'class_names', 'scores', 'boxes']
+        writer = csv.DictWriter(f, fieldnames=fnames)
+        writer.writeheader()
+        (width, height) = pil_im.size
+        fps = int(1000./inference_time)
+        writer.writerow({'fps': fps, 'timestamp': t, 'width' : width, 'height': height, 'image_name': image_name, 'image_path': image_path, 
+                        'class_names': str(class_names), 'scores': str(scores), 'boxes': str(boxes)})
         
     end_time = time.monotonic()
     #print('Saving time: {:.2f} ms'.format((end_time - start_time) * 1000))
@@ -152,14 +150,15 @@ async def main():
         cv2_im_rgb = cv2.cvtColor(cv2_im, cv2.COLOR_BGR2RGB)
         pil_im = Image.fromarray(cv2_im_rgb)
 
-        common.set_input(interpreter, pil_im)
-        
+        # do inference & get inference time
         start_time = time.monotonic()
+        
+        common.set_input(interpreter, pil_im)
         interpreter.invoke()
+        objs = get_output(interpreter, score_threshold=args.threshold, top_k=args.top_k)
+        
         end_time = time.monotonic()
         inference_time = (end_time - start_time)*1000
-        
-        objs = get_output(interpreter, score_threshold=args.threshold, top_k=args.top_k)
         
         # show the results
         #cv2_im = append_objs_to_img(cv2_im, objs, labels)
