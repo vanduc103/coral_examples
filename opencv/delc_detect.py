@@ -113,7 +113,7 @@ async def main():
                         help='classifier score threshold')
                         
     parser.add_argument('--input_path', type=str, default='',
-                        help='Input path for the testing video')
+                        help='Input path for the testing images')
     parser.add_argument('--output_path', type=str, default='',
                         help='Output path to save the results')
     args = parser.parse_args()
